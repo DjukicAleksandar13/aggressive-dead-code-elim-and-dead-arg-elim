@@ -20,8 +20,7 @@ struct OurADCE : public FunctionPass {
     CFG->DFS(&F.front());
 
     for(BasicBlock &BB : F){
-      reachableInstructions[&BB] = false;
-      if(CFG->isReachable(&BB)){
+      if(CFG->isReachable(&BB) && reachableInstructions[&BB] == false){
         reachableInstructions[&BB] = true;
         noLivenessChange = true;
       }
@@ -42,6 +41,10 @@ struct OurADCE : public FunctionPass {
   }
 
   bool runOnFunction(Function &F) override{
+    for(BasicBlock &BB : F){
+      reachableInstructions[&BB] = false;
+    }
+
     do{
       noLivenessChange = false;
       findReachableInstructions(F);
@@ -55,6 +58,4 @@ struct OurADCE : public FunctionPass {
 }
 
 char OurADCE::ID = 0;
-static RegisterPass<OurADCE> X("our-adce", "OurADCE pass",
-                                          false /* Only looks at CFG */,
-                                          false /* Analysis Pass */);
+static RegisterPass<OurADCE> X("our-adce", "OurADCE pass", false, false);
