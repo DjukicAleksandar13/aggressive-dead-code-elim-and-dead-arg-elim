@@ -10,7 +10,8 @@ using namespace llvm;
 namespace {
 struct OurADCE : public FunctionPass {
   std::unordered_map<BasicBlock *, bool> reachableInstructions;
-  bool noLivenessChange;
+  std::vector<BasicBlock *> BBList;
+  bool livenessChange;
 
   static char ID;
   OurADCE() : FunctionPass(ID) {}
@@ -22,17 +23,12 @@ struct OurADCE : public FunctionPass {
     for(BasicBlock &BB : F){
       if(CFG->isReachable(&BB) && reachableInstructions[&BB] == false){
         reachableInstructions[&BB] = true;
-        noLivenessChange = true;
+        livenessChange = true;
       }
     }
   }
 
   void eliminateUnreachableInstructions(Function &F){
-    std::vector<BasicBlock *> BBList;
-    for(BasicBlock &BB : F){
-      BBList.push_back(&BB);
-    }
-
     for(BasicBlock *BB : BBList){
       if(!reachableInstructions[BB]){
         BB->eraseFromParent();
@@ -43,12 +39,13 @@ struct OurADCE : public FunctionPass {
   bool runOnFunction(Function &F) override{
     for(BasicBlock &BB : F){
       reachableInstructions[&BB] = false;
+      BBList.push_back(&BB);
     }
 
     do{
-      noLivenessChange = false;
+      livenessChange = false;
       findReachableInstructions(F);
-    }while(noLivenessChange);
+    }while(livenessChange);
 
     eliminateUnreachableInstructions(F);
 
