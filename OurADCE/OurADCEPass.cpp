@@ -11,10 +11,11 @@ using namespace llvm;
 namespace {
 	struct OurADCE : public FunctionPass {
 		std::unordered_map<BasicBlock *, bool> reachableInstructions;
+		std::vector<BasicBlock *> BBList;
 		std::vector<Instruction *> CurrentInstructions;
 		std::vector<Instruction *> InstructionsToRemove;
 		std::unordered_set<Instruction *> LiveInstructions;
-		bool noLivenessChange;
+		bool livenessChange;
 
 		static char ID;
 		OurADCE() : FunctionPass(ID) {}
@@ -23,34 +24,19 @@ namespace {
 			OurCFG *CFG = new OurCFG(F);
 			CFG->DFS(&F.front());
 
-			for (BasicBlock &BB : F) {
-		  		if (CFG->isReachable(&BB) && reachableInstructions[&BB] == false) {
-		    		reachableInstructions[&BB] = true;
-		  		}
-			}
-		}
+    		for (BasicBlock &BB : F) {
+      			if (CFG->isReachable(&BB) && reachableInstructions[&BB] == false) {
+					reachableInstructions[&BB] = true;
+					livenessChange = true;
+      			}
+    		}
+  		}
 
 		void eliminateUnreachableInstructions(Function &F) {
-			findReachableInstructions(F);
-			std::vector<BasicBlock *> BBList;
-			for (BasicBlock &BB : F) {
-	  			BBList.push_back(&BB);
-			}
-
-			int countUnreachable = 0;
-			for(BasicBlock *BB : BBList) {
-	  			if (!reachableInstructions[BB]) {
-					countUnreachable++;
-	    			BB->eraseFromParent();
-	  			}
-			}
-
-			if (countUnreachable == 0) { noLivenessChange = true; }
-		}
-
-		void addToLive(Instruction *I) {
-			if (LiveInstructions.insert(I).second) {
-				CurrentInstructions.push_back(I);
+			for (BasicBlock *BB : BBList){
+				if (!reachableInstructions[BB]) {
+					BB->eraseFromParent();
+				}
 			}
 		}
 
@@ -84,7 +70,7 @@ namespace {
 				}
 			}
 
-			if (InstructionsToRemove.size() > 0) { noLivenessChange = true; }
+			if (InstructionsToRemove.size() > 0) { livenessChange = true; }
 
 			for (Instruction *Instr : InstructionsToRemove) {
       			Instr->eraseFromParent();
@@ -94,13 +80,14 @@ namespace {
 		bool runOnFunction(Function &F) override {
 			for (BasicBlock &BB : F) {
   				reachableInstructions[&BB] = false;
+				BBList.push_back(&BB);
 			}
 
 			do {
-  				noLivenessChange = false;
+  				livenessChange = false;
 				eliminateDeadInstructions(F);
   				eliminateUnreachableInstructions(F);
-			} while (noLivenessChange);
+			} while (livenessChange);
 
 		return true;
 		}
