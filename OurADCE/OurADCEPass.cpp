@@ -11,7 +11,6 @@ using namespace llvm;
 namespace {
 	struct OurADCE : public FunctionPass {
 		std::unordered_map<BasicBlock *, bool> reachableInstructions;
-		std::vector<BasicBlock *> BBList;
 		std::vector<Instruction *> CurrentInstructions;
 		std::vector<Instruction *> InstructionsToRemove;
 		std::unordered_set<Instruction *> LiveInstructions;
@@ -33,11 +32,17 @@ namespace {
   		}
 
 		void eliminateUnreachableInstructions(Function &F) {
-			for (BasicBlock *BB : BBList){
-				if (!reachableInstructions[BB]) {
-					BB->eraseFromParent();
-				}
-			}
+          findReachableInstructions(F);
+		  std::vector<BasicBlock *> unreachableInstrucions;
+		  for (BasicBlock &BB : F) {
+		    if (!reachableInstructions[&BB]) {
+		      unreachableInstrucions.push_back(&BB);
+		    }
+		  }
+
+		  for (BasicBlock *ui : unreachableInstrucions) {
+		    ui->eraseFromParent();
+		  }
 		}
 
 		void eliminateDeadInstructions(Function &F) {
@@ -80,7 +85,6 @@ namespace {
 		bool runOnFunction(Function &F) override {
 			for (BasicBlock &BB : F) {
   				reachableInstructions[&BB] = false;
-				BBList.push_back(&BB);
 			}
 
 			do {
