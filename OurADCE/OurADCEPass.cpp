@@ -4,6 +4,8 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Value.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "OurCFG.h"
 
 using namespace llvm;
@@ -14,7 +16,8 @@ namespace {
 		std::vector<Instruction *> CurrentInstructions;
 		std::vector<Instruction *> InstructionsToRemove;
 		std::unordered_set<Instruction *> LiveInstructions;
-		bool livenessChange;
+        std::unordered_set<Value *> LiveValues;
+        bool livenessChange;
 
 		static char ID;
 		OurADCE() : FunctionPass(ID) {}
@@ -24,9 +27,8 @@ namespace {
 			CFG->DFS(&F.front());
 
     		for (BasicBlock &BB : F) {
-      			if (CFG->isReachable(&BB) && reachableInstructions[&BB] == false) {
+      			if (CFG->isReachable(&BB)) {
 					reachableInstructions[&BB] = true;
-					livenessChange = true;
       			}
     		}
   		}
@@ -40,36 +42,96 @@ namespace {
 		    }
 		  }
 
+          if (unreachableInstrucions.size() > 0) { livenessChange = true; }
+
 		  for (BasicBlock *ui : unreachableInstrucions) {
 		    ui->eraseFromParent();
 		  }
 		}
 
+        void addToLive(Instruction *I) {
+          if (LiveInstructions.insert(I).second) {
+            CurrentInstructions.push_back(I);
+          }
+        }
+
+        bool potentialLive(Instruction *I) {
+          if (isa<ReturnInst>(I) || isa<ResumeInst>(I) || isa<CallBase>(I) || I->isTerminator()) return true;
+
+          if (auto *LoadInstr = dyn_cast<LoadInst>(I)) {
+            return LoadInstr->isVolatile();
+          }
+
+          if (auto *StoreInstr = dyn_cast<StoreInst>(I)) {
+            return StoreInstr->isVolatile();
+          }
+
+          return false;
+        }
+
 		void eliminateDeadInstructions(Function &F) {
 			LiveInstructions.clear();
 			CurrentInstructions.clear();
 			InstructionsToRemove.clear();
+            LiveValues.clear();
 
 			for (BasicBlock &BB : F) {
 				for (Instruction &I : BB) {
-					if (I.isTerminator() || I.mayHaveSideEffects()) {
+					if (potentialLive(&I)) {
 						addToLive(&I);
 					}
 				}
 			}
 
-			while (!CurrentInstructions.empty()) {
-				Instruction *currInst = CurrentInstructions.back();
-				CurrentInstructions.pop_back();
-				for (Value *V : currInst->operands()) {
-					if (Instruction *I = dyn_cast<Instruction>(V)) {
-						addToLive(I);
-					}
-				}
-			}
+            bool ind;
+
+            do {
+              ind = false;
+
+			  while (!CurrentInstructions.empty()) {
+				  Instruction *currInst = CurrentInstructions.back();
+				  CurrentInstructions.pop_back();
+				  size_t valueCount = LiveValues.size();
+                  size_t instructionCount = LiveInstructions.size();
+
+                  for (Value *Val: currInst->operands()) {
+                    if (Instruction *Operand = dyn_cast<Instruction>(Val)) {
+                      addToLive(Operand);
+                    }
+                  }
+
+                  if (auto *LoadInstr = dyn_cast<LoadInst>(currInst)) {
+                    Value *Ptr = getUnderlyingObject(LoadInstr->getPointerOperand());
+                    if (Ptr != nullptr) { LiveValues.insert(Ptr); }
+                  }
+
+                  if (LiveValues.size() != valueCount || LiveInstructions.size() != instructionCount) {
+                    ind = true;
+                  }
+			  }
+
+              size_t instCount = LiveInstructions.size();
+
+              for (BasicBlock &BB : F) {
+                for (Instruction &I : BB) {
+                  auto *StoreInstr = dyn_cast<StoreInst>(&I);
+                  if (!StoreInstr) continue;
+                  Value *Ptr = getUnderlyingObject(StoreInstr->getPointerOperand());
+                  if (Ptr == nullptr) { continue; }
+
+                  if (LiveValues.count(Ptr)) {
+                    addToLive(StoreInstr);
+                  }
+                }
+              }
+
+              if (LiveInstructions.size() != instCount) { ind = true; }
+
+            } while (ind);
 
 			for (BasicBlock &BB : F) {
 				for (Instruction &I : BB) {
+                    if (I.isTerminator()) { continue; }
 					if (LiveInstructions.count(&I) != 0) { continue; }
 					InstructionsToRemove.push_back(&I);
 				}
@@ -87,13 +149,13 @@ namespace {
   				reachableInstructions[&BB] = false;
 			}
 
-			do {
-  				livenessChange = false;
-				eliminateDeadInstructions(F);
-  				eliminateUnreachableInstructions(F);
-			} while (livenessChange);
+            do {
+              livenessChange = false;
+			  eliminateDeadInstructions(F);
+  			  eliminateUnreachableInstructions(F);
+            } while (livenessChange);
 
-		return true;
+		    return true;
 		}
 	};
 }

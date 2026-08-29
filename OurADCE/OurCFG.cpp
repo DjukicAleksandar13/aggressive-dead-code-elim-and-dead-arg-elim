@@ -6,10 +6,14 @@ OurCFG::OurCFG(llvm::Function &F) {
 }
 
 void OurCFG::CreateCFG(Function &F) {
-  for(BasicBlock &BB : F) {
-    AdjacencyList[&BB] = {};
-    for (BasicBlock *Successor : successors(&BB)) {
-        AdjacencyList[&BB].push_back(Successor);
+  for (BasicBlock &BB : F) {
+    for (Instruction &Instr : BB) {
+      if (BranchInst *BranchInstr = dyn_cast<BranchInst>(&Instr)) {
+        AdjacencyList[&BB].push_back(BranchInstr->getSuccessor(0));
+        if (BranchInstr->isConditional()) {
+          AdjacencyList[&BB].push_back(BranchInstr->getSuccessor(1));
+        }
+      }
     }
   }
 }
