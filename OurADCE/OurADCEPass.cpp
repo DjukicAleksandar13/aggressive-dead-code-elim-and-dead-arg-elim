@@ -34,39 +34,39 @@ namespace {
   		}
 
 		void eliminateUnreachableInstructions(Function &F) {
-          findReachableInstructions(F);
-		  std::vector<BasicBlock *> unreachableInstrucions;
-		  for (BasicBlock &BB : F) {
-		    if (!reachableInstructions[&BB]) {
-		      unreachableInstrucions.push_back(&BB);
+            findReachableInstructions(F);
+		    std::vector<BasicBlock *> unreachableInstrucions;
+		    for (BasicBlock &BB : F) {
+		        if (!reachableInstructions[&BB]) {
+		            unreachableInstrucions.push_back(&BB);
+		        }
 		    }
-		  }
 
-          if (unreachableInstrucions.size() > 0) { livenessChange = true; }
+            if (unreachableInstrucions.size() > 0) { livenessChange = true; }
 
-		  for (BasicBlock *ui : unreachableInstrucions) {
-		    ui->eraseFromParent();
-		  }
+		    for (BasicBlock *ui : unreachableInstrucions) {
+		        ui->eraseFromParent();
+		    }
 		}
 
         void addToLive(Instruction *I) {
-          if (LiveInstructions.insert(I).second) {
-            CurrentInstructions.push_back(I);
-          }
+            if (LiveInstructions.insert(I).second) {
+                CurrentInstructions.push_back(I);
+            }
         }
 
         bool potentialLive(Instruction *I) {
-          if (isa<ReturnInst>(I) || isa<ResumeInst>(I) || isa<CallBase>(I) || I->isTerminator()) return true;
+            if (isa<ReturnInst, CallBase>(I) || I->isTerminator()) return true;
 
-          if (auto *LoadInstr = dyn_cast<LoadInst>(I)) {
-            return LoadInstr->isVolatile();
-          }
+            if (auto *LoadInstr = dyn_cast<LoadInst>(I)) {
+                return LoadInstr->isVolatile();
+            }
 
-          if (auto *StoreInstr = dyn_cast<StoreInst>(I)) {
-            return StoreInstr->isVolatile();
-          }
+            if (auto *StoreInstr = dyn_cast<StoreInst>(I)) {
+                return StoreInstr->isVolatile();
+            }
 
-          return false;
+            return false;
         }
 
 		void eliminateDeadInstructions(Function &F) {
@@ -86,54 +86,53 @@ namespace {
             bool ind;
 
             do {
-              ind = false;
+                ind = false;
 
-			  while (!CurrentInstructions.empty()) {
-				  Instruction *currInst = CurrentInstructions.back();
-				  CurrentInstructions.pop_back();
-				  size_t valueCount = LiveValues.size();
-                  size_t instructionCount = LiveInstructions.size();
+			    while (!CurrentInstructions.empty()) {
+				    Instruction *currInst = CurrentInstructions.back();
+				    CurrentInstructions.pop_back();
+				    size_t valueCount = LiveValues.size();
+                    size_t instructionCount = LiveInstructions.size();
 
-                  for (Value *Val: currInst->operands()) {
-                    if (Instruction *Operand = dyn_cast<Instruction>(Val)) {
-                      addToLive(Operand);
+                    for (Value *Val: currInst->operands()) {
+                        if (Instruction *Operand = dyn_cast<Instruction>(Val)) {
+                            addToLive(Operand);
+                        }
                     }
-                  }
 
-                  if (auto *LoadInstr = dyn_cast<LoadInst>(currInst)) {
-                    Value *Ptr = getUnderlyingObject(LoadInstr->getPointerOperand());
-                    if (Ptr != nullptr) { LiveValues.insert(Ptr); }
-                  }
+                    if (auto *LoadInstr = dyn_cast<LoadInst>(currInst)) {
+                        Value *Ptr = getUnderlyingObject(LoadInstr->getPointerOperand());
+                        if (Ptr != nullptr) { LiveValues.insert(Ptr); }
+                    }
 
-                  if (LiveValues.size() != valueCount || LiveInstructions.size() != instructionCount) {
-                    ind = true;
-                  }
-			  }
+                    if (LiveValues.size() != valueCount || LiveInstructions.size() != instructionCount) {
+                        ind = true;
+                    }
+			    }
 
-              size_t instCount = LiveInstructions.size();
+                size_t instCount = LiveInstructions.size();
 
-              for (BasicBlock &BB : F) {
-                for (Instruction &I : BB) {
-                  auto *StoreInstr = dyn_cast<StoreInst>(&I);
-                  if (!StoreInstr) continue;
-                  Value *Ptr = getUnderlyingObject(StoreInstr->getPointerOperand());
-                  if (Ptr == nullptr) { continue; }
+                for (BasicBlock &BB : F) {
+                    for (Instruction &I : BB) {
+                        auto *StoreInstr = dyn_cast<StoreInst>(&I);
+                        if (!StoreInstr) continue;
+                            Value *Ptr = getUnderlyingObject(StoreInstr->getPointerOperand());
 
-                  if (LiveValues.count(Ptr)) {
-                    addToLive(StoreInstr);
-                  }
+                            if (Ptr != nullptr && LiveValues.count(Ptr)) {
+                                addToLive(StoreInstr);
+                            }
+                    }
                 }
-              }
 
-              if (LiveInstructions.size() != instCount) { ind = true; }
+                if (LiveInstructions.size() != instCount) { ind = true; }
 
             } while (ind);
 
 			for (BasicBlock &BB : F) {
 				for (Instruction &I : BB) {
-                    if (I.isTerminator()) { continue; }
-					if (LiveInstructions.count(&I) != 0) { continue; }
-					InstructionsToRemove.push_back(&I);
+					if (!I.isTerminator() && LiveInstructions.count(&I) == 0) {
+                        InstructionsToRemove.push_back(&I);
+                    }
 				}
 			}
 
@@ -150,9 +149,9 @@ namespace {
 			}
 
             do {
-              livenessChange = false;
-			  eliminateDeadInstructions(F);
-  			  eliminateUnreachableInstructions(F);
+                livenessChange = false;
+			    eliminateDeadInstructions(F);
+  			    eliminateUnreachableInstructions(F);
             } while (livenessChange);
 
 		    return true;
