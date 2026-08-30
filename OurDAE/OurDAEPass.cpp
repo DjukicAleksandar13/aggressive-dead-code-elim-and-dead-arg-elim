@@ -5,6 +5,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Analysis/ValueTracking.h"
 
 using namespace llvm;
 
@@ -19,11 +20,17 @@ namespace {
 	    for (User *U : A.users()) {
                 StoreInst *StoreInstr = dyn_cast<StoreInst>(U);
                 if (!StoreInstr) { return false; }
+	            Value *val = getUnderlyingObject(StoreInstr->getPointerOperand());
+	            if (isa<GlobalVariable>(val)) { return false; }
                 AllocaInst *Alloca = dyn_cast<AllocaInst>(StoreInstr->getPointerOperand());
                 if (!Alloca) { return false; }
 
                 for (User *AllocaUser : Alloca->users()) {
-                    if (isa<LoadInst>(AllocaUser)) { return false; }
+                    if (isa<LoadInst>(AllocaUser))
+                        return false;
+
+                    if (!isa<StoreInst>(AllocaUser))
+                        return false;
                 }
             }
 

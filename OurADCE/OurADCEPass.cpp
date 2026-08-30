@@ -63,6 +63,9 @@ namespace {
             }
 
             if (auto *StoreInstr = dyn_cast<StoreInst>(I)) {
+				Value *val = getUnderlyingObject(StoreInstr->getPointerOperand());
+				if (isa<GlobalVariable>(val)) { return true; } // samo dodata provera da li je globalna promenljiva u pitanju pri store instrukciji
+
                 return StoreInstr->isVolatile();
             }
 
@@ -137,6 +140,10 @@ namespace {
 			}
 
 			if (InstructionsToRemove.size() > 0) { livenessChange = true; }
+
+			for (Instruction *Instr : InstructionsToRemove) {
+				Instr->dropAllReferences();
+			}
 
 			for (Instruction *Instr : InstructionsToRemove) {
       			Instr->eraseFromParent();
